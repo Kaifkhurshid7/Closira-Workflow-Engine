@@ -1,15 +1,15 @@
-### ══════════════════════════════════════════════════════════════════════════════
+### ═══════════════════════════════════════════════════════════════════════════
 ### Closira Enquiry Engine — API Test File (VS Code REST Client)
-### ══════════════════════════════════════════════════════════════════════════════
+### ═══════════════════════════════════════════════════════════════════════════
 
 ### Health Check
-GET http://localhost:8000/api/health
+GET http://localhost:8000/health
 Content-Type: application/json
 
 ###
 
 ### Create Enquiry — Pricing Question (should match pricing_question SOP)
-POST http://localhost:8000/api/enquiry
+POST http://localhost:8000/enquiry
 Content-Type: application/json
 
 {
@@ -21,7 +21,7 @@ Content-Type: application/json
 ###
 
 ### Create Enquiry — Booking (should match booking_enquiry SOP)
-POST http://localhost:8000/api/enquiry
+POST http://localhost:8000/enquiry
 Content-Type: application/json
 
 {
@@ -33,7 +33,7 @@ Content-Type: application/json
 ###
 
 ### Create Enquiry — Complaint (should match complaint SOP)
-POST http://localhost:8000/api/enquiry
+POST http://localhost:8000/enquiry
 Content-Type: application/json
 
 {
@@ -44,8 +44,20 @@ Content-Type: application/json
 
 ###
 
+### Create Enquiry — After Hours (should match after_hours SOP)
+POST http://localhost:8000/enquiry
+Content-Type: application/json
+
+{
+  "customer_name": "Priya Sharma",
+  "channel": "whatsapp",
+  "message": "Are you open today? I think you might be closed on the weekend."
+}
+
+###
+
 ### Create Enquiry — No SOP Match (should auto-escalate)
-POST http://localhost:8000/api/enquiry
+POST http://localhost:8000/enquiry
 Content-Type: application/json
 
 {
@@ -56,14 +68,14 @@ Content-Type: application/json
 
 ###
 
-### Get Enquiry History (replace enq_XXXXXXXX with actual ID)
-GET http://localhost:8000/api/enquiry/enq_XXXXXXXX/history
+### Get Enquiry History (replace enq_XXXXXXXX with actual ID from above)
+GET http://localhost:8000/enquiry/enq_XXXXXXXX/history
 Content-Type: application/json
 
 ###
 
 ### Schedule Follow-up (replace enq_XXXXXXXX with actual ID)
-POST http://localhost:8000/api/enquiry/enq_XXXXXXXX/followup
+POST http://localhost:8000/enquiry/enq_XXXXXXXX/followup
 Content-Type: application/json
 
 {
@@ -74,7 +86,7 @@ Content-Type: application/json
 ###
 
 ### Escalate Enquiry (replace enq_XXXXXXXX with actual ID)
-POST http://localhost:8000/api/enquiry/enq_XXXXXXXX/escalate
+POST http://localhost:8000/enquiry/enq_XXXXXXXX/escalate
 Content-Type: application/json
 
 {
@@ -83,8 +95,10 @@ Content-Type: application/json
 
 ###
 
+### ─── Error Cases ────────────────────────────────────────────────────────────
+
 ### Validation Error — Invalid Channel
-POST http://localhost:8000/api/enquiry
+POST http://localhost:8000/enquiry
 Content-Type: application/json
 
 {
@@ -96,7 +110,7 @@ Content-Type: application/json
 ###
 
 ### Validation Error — Missing Fields
-POST http://localhost:8000/api/enquiry
+POST http://localhost:8000/enquiry
 Content-Type: application/json
 
 {
@@ -106,5 +120,5 @@ Content-Type: application/json
 ###
 
 ### 404 — Non-existent Enquiry
-GET http://localhost:8000/api/enquiry/enq_doesnotexist/history
+GET http://localhost:8000/enquiry/enq_doesnotexist/history
 Content-Type: application/json

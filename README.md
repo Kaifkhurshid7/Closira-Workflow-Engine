@@ -1,72 +1,57 @@
 # Closira Enquiry Engine
 
-A production-grade FastAPI backend service that powers Closira's inbound customer enquiry pipeline. Handles enquiry creation, async SOP classification, follow-ups, escalations, and full conversation history tracking.
+A lightweight backend service that simulates Closira's core customer enquiry-handling workflow. Built with **Python + FastAPI**, async processing via **BackgroundTasks**, and **SQLite** via `aiosqlite`.
 
-Built with **Python 3.11+**, **FastAPI**, **Async SQLAlchemy**, and **SQLite** — designed to demonstrate clean backend architecture, async workflows, and service-oriented design.
+Accepts inbound customer enquiries across WhatsApp, email, and phone — classifies them against hardcoded SOPs using keyword matching, suggests automated responses, and escalates unmatched enquiries for human review.
 
 ---
 
 ## Table of Contents
 
-- [Architecture Overview](#architecture-overview)
-- [Project Structure](#project-structure)
-- [Tech Stack](#tech-stack)
 - [Setup & Run](#setup--run)
-- [API Documentation](#api-documentation)
-- [SOP Matching Engine](#sop-matching-engine)
+- [Project Structure](#project-structure)
+- [API Endpoints](#api-endpoints)
+- [Database Schema & Reasoning](#database-schema--reasoning)
 - [Async Processing: BackgroundTasks vs Celery](#async-processing-backgroundtasks-vs-celery)
-- [Database Design](#database-design)
+- [SOP Matching Logic](#sop-matching-logic)
 - [Running Tests](#running-tests)
-- [Environment Variables](#environment-variables)
-- [Trade-offs & Assumptions](#trade-offs--assumptions)
-- [Future Improvements](#future-improvements)
+- [Trade-offs & Known Limitations](#trade-offs--known-limitations)
 
 ---
 
-## Architecture Overview
+## Setup & Run
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Client Request                            │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Controller Layer (thin HTTP handlers)                           │
-│  - Request validation (Pydantic)                                │
-│  - Response formatting                                          │
-│  - HTTP status codes                                            │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Service Layer (business logic)                                  │
-│  - Orchestrates operations                                      │
-│  - Applies business rules                                       │
-│  - Delegates to repositories                                    │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Repository Layer (data access)                                  │
-│  - SQLAlchemy queries                                           │
-│  - Transaction management                                       │
-│  - Query optimization                                           │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Database (SQLite / PostgreSQL)                                  │
-└─────────────────────────────────────────────────────────────────┘
+### Prerequisites
+- Python 3.10+
+- pip
 
-┌─────────────────────────────────────────────────────────────────┐
-│  Background Workers                                             │
-│  - SOP classification (async, non-blocking)                     │
-│  - Auto-escalation on no match                                  │
-└─────────────────────────────────────────────────────────────────┘
+### Steps
+
+```bash
+# 1. Clone the repo
+git clone <your-repo-url>
+cd closira-backend
+
+# 2. Create and activate a virtual environment
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Copy environment file (defaults are fine for local dev)
+cp .env.example .env
+
+# 5. Run the server
+uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**Pattern:** Controller → Service → Repository (clean separation of concerns)
+The API will be live at:
+- **Base URL:** `http://localhost:8000`
+- **Interactive Docs (Swagger):** `http://localhost:8000/docs`
+- **ReDoc:** `http://localhost:8000/redoc`
+
+The SQLite database (`closira.db`) and all tables are created automatically on first startup — no migrations needed.
 
 ---
 
@@ -75,132 +60,47 @@ Built with **Python 3.11+**, **FastAPI**, **Async SQLAlchemy**, and **SQLite** �
 ```
 closira-backend/
 ├── src/
-│   ├── app.py                          # FastAPI application factory
-│   ├── config/
-│   │   ├── settings.py                 # Pydantic settings (env management)
-│   │   └── logging.py                  # Structured JSON logger setup
-│   ├── constants/
-│   │   ├── enums.py                    # Channel, EnquiryStatus enums
-│   │   ├── messages.py                 # Centralised response messages
-│   │   └── sop_catalog.py             # SOP definitions (keywords + responses)
-│   ├── controllers/
-│   │   ├── enquiry_controller.py       # Enquiry endpoints (thin handlers)
-│   │   └── health_controller.py        # Health check endpoint
-│   ├── db/
-│   │   └── session.py                  # Async engine, session factory, init_db()
-│   ├── middlewares/
-│   │   └── error_handler.py            # Global exception handlers
-│   ├── models/
-│   │   ├── base.py                     # SQLAlchemy declarative base
-│   │   ├── enquiry.py                  # Enquiry ORM model
-│   │   └── status_event.py            # StatusEvent audit log model
-│   ├── repositories/
-│   │   └── enquiry_repository.py       # Data access layer
-│   ├── routes/
-│   │   └── __init__.py                 # Route registration
-│   ├── schemas/
-│   │   ├── enquiry.py                  # Request/response Pydantic models
-│   │   └── responses.py               # Standard API response envelope
-│   ├── services/
-│   │   ├── enquiry_service.py          # Business logic orchestration
-│   │   └── sop_matcher.py             # SOP classification engine
-│   └── workers/
-│       └── enquiry_worker.py           # Background task processor
+│   ├── main.py              # FastAPI app, lifespan, global error handler
+│   ├── config.py            # Pydantic settings (reads .env)
+│   ├── logger.py            # Structured JSON logging setup
+│   ├── database.py          # Async SQLAlchemy engine, session factory, init_db()
+│   ├── models.py            # ORM models: Enquiry, StatusEvent, enums
+│   ├── schemas.py           # Pydantic request/response schemas
+│   ├── service.py           # Business logic: create, escalate, follow-up
+│   ├── sop_matcher.py       # Keyword-based SOP matching engine
+│   ├── routes.py            # All API endpoint handlers
+│   └── worker.py            # Background task: match SOP or auto-escalate
 ├── tests/
-│   ├── conftest.py                     # Test fixtures & DB setup
-│   ├── test_enquiry_endpoints.py       # API integration tests
-│   ├── test_health.py                  # Health endpoint tests
-│   └── test_sop_matcher.py            # SOP matcher unit tests
-├── logs/                               # Application logs (gitignored)
-├── .env.example                        # Environment template
+│   ├── conftest.py          # Pytest fixtures, isolated test DB
+│   ├── test_endpoints.py    # API integration tests (all 5 endpoints)
+│   └── test_sop_matcher.py  # Unit tests for SOP matching logic
+├── logs/                    # Structured JSON logs (gitignored)
+├── .env.example             # Environment template
 ├── .gitignore
-├── api_tests.http                      # VS Code REST Client test file
-├── pytest.ini                          # Pytest configuration
-├── requirements.txt                    # Python dependencies
+├── api_tests.http           # VS Code REST Client file (all endpoints)
+├── pytest.ini
+├── requirements.txt
 └── README.md
 ```
 
 ---
 
-## Tech Stack
+## API Endpoints
 
-| Component | Technology | Rationale |
-|-----------|-----------|-----------|
-| Framework | FastAPI | Async-first, auto-generated docs, Pydantic integration |
-| ORM | SQLAlchemy 2.0 (async) | Type-safe queries, relationship mapping, migration-ready |
-| Database | SQLite + aiosqlite | Zero-setup dev experience, swap to PostgreSQL via env var |
-| Validation | Pydantic v2 | Fast, type-safe, powers both schemas and settings |
-| Logging | python-json-logger | Structured JSON logs, machine-parseable |
-| Testing | pytest + httpx | Async test support, real HTTP client simulation |
-| Server | Uvicorn | ASGI server, production-ready with workers |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/enquiry` | Create a new inbound enquiry. Returns `job_id` immediately (202). |
+| `POST` | `/enquiry/{id}/followup` | Schedule a follow-up (delay in minutes + optional template). |
+| `POST` | `/enquiry/{id}/escalate` | Manually escalate to a human agent with a reason. |
+| `GET` | `/enquiry/{id}/history` | Full history: message, SOP match, suggested response, timeline. |
+| `GET` | `/health` | API status + database connectivity check. |
 
----
-
-## Setup & Run
-
-### Prerequisites
-- Python 3.11+
-- pip
-
-### Steps
-
-```bash
-# 1. Clone the repository
-git clone <your-repo-url>
-cd closira-backend
-
-# 2. Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Configure environment
-cp .env.example .env            # Defaults work for local development
-
-# 5. Start the server
-uvicorn src.app:app --reload --host 0.0.0.0 --port 8000
-```
-
-The API will be available at:
-- **Base URL:** `http://localhost:8000`
-- **Swagger UI:** `http://localhost:8000/docs`
-- **ReDoc:** `http://localhost:8000/redoc`
-
-The database and all tables are created automatically on first startup.
-
----
-
-## API Documentation
-
-### Endpoints
-
-| Method | Endpoint | Description | Status |
-|--------|----------|-------------|--------|
-| `POST` | `/api/enquiry` | Create a new inbound enquiry | 202 |
-| `POST` | `/api/enquiry/{id}/followup` | Schedule a follow-up | 200 |
-| `POST` | `/api/enquiry/{id}/escalate` | Escalate to human agent | 200 |
-| `GET` | `/api/enquiry/{id}/history` | Full history + timeline | 200 |
-| `GET` | `/api/health` | Service health check | 200 |
-
-### Standard Response Format
-
-All endpoints return a consistent envelope:
-
-```json
-{
-  "success": true,
-  "message": "Human-readable description",
-  "data": { },
-  "metadata": { }
-}
-```
+Full interactive docs with example payloads at `/docs` after running the server.
 
 ### Example: Create an Enquiry
 
 ```bash
-curl -X POST http://localhost:8000/api/enquiry \
+curl -X POST http://localhost:8000/enquiry \
   -H "Content-Type: application/json" \
   -d '{
     "customer_name": "Sarah Mitchell",
@@ -212,75 +112,132 @@ curl -X POST http://localhost:8000/api/enquiry \
 **Response (202 Accepted):**
 ```json
 {
-  "success": true,
-  "message": "Enquiry received and queued for processing.",
-  "data": {
-    "enquiry_id": "enq_a3f9c821",
-    "status": "new"
-  },
-  "metadata": {
-    "async_processing": true
-  }
+  "job_id": "enq_a3f9c821",
+  "status": "new",
+  "message": "Enquiry received and queued for processing."
 }
 ```
 
-### Example: Get History (after background processing)
+### Example: Get History (after background task runs)
 
 ```bash
-curl http://localhost:8000/api/enquiry/enq_a3f9c821/history
+curl http://localhost:8000/enquiry/enq_a3f9c821/history
 ```
 
 **Response:**
 ```json
 {
-  "success": true,
-  "message": "Enquiry history retrieved.",
-  "data": {
-    "id": "enq_a3f9c821",
-    "customer_name": "Sarah Mitchell",
-    "channel": "whatsapp",
-    "message": "Hi, I wanted to know about your pricing plans.",
-    "status": "sop_matched",
-    "sop_matched": "pricing_question",
-    "suggested_response": "Great question! Our pricing depends on...",
-    "timeline": [
-      { "status": "new", "note": "Enquiry received and queued for processing." },
-      { "status": "sop_matched", "note": "SOP matched: pricing_question" }
-    ]
-  },
-  "metadata": { "timeline_count": 2 }
+  "id": "enq_a3f9c821",
+  "customer_name": "Sarah Mitchell",
+  "channel": "whatsapp",
+  "message": "Hi, I wanted to know about your pricing plans.",
+  "status": "sop_matched",
+  "sop_matched": "pricing_question",
+  "suggested_response": "Great question! Our pricing depends on the package you choose...",
+  "escalation_reason": null,
+  "created_at": "2025-05-24T10:30:00",
+  "updated_at": "2025-05-24T10:30:01",
+  "timeline": [
+    { "id": "...", "status": "new", "note": "Enquiry received and queued for processing.", "created_at": "..." },
+    { "id": "...", "status": "sop_matched", "note": "SOP matched: pricing_question", "created_at": "..." }
+  ]
+}
+```
+
+### Example: Escalate
+
+```bash
+curl -X POST http://localhost:8000/enquiry/enq_a3f9c821/escalate \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "Customer is very upset and demanding a manager."}'
+```
+
+**Response:**
+```json
+{
+  "enquiry_id": "enq_a3f9c821",
+  "status": "escalated",
+  "reason": "Customer is very upset and demanding a manager.",
+  "message": "Enquiry escalated to a human agent."
+}
+```
+
+### Example: Schedule Follow-up
+
+```bash
+curl -X POST http://localhost:8000/enquiry/enq_a3f9c821/followup \
+  -H "Content-Type: application/json" \
+  -d '{"delay_minutes": 30, "message_template": "Hi {customer_name}, following up!"}'
+```
+
+**Response:**
+```json
+{
+  "enquiry_id": "enq_a3f9c821",
+  "status": "follow_up_scheduled",
+  "follow_up_in_minutes": 30,
+  "message": "Follow-up scheduled successfully."
 }
 ```
 
 ---
 
-## SOP Matching Engine
+## Database Schema & Reasoning
 
-The SOP (Standard Operating Procedure) matcher classifies inbound messages using keyword-based scoring.
+### Why SQLite?
 
-### Supported SOPs
+1. **Zero setup friction** — No Docker, no server process, no connection string configuration. Clone and run in under 2 minutes.
+2. **Async support** — `aiosqlite` provides a proper async driver compatible with SQLAlchemy 2.0's async engine.
+3. **Good enough for a prototype** — Handles concurrent reads well, serialises writes acceptably for demo workloads.
 
-| SOP | Trigger Keywords |
-|-----|-----------------|
-| `booking_enquiry` | book, appointment, schedule, reserve, slot |
-| `pricing_question` | price, cost, fee, quote, charge, how much, rate |
-| `complaint` | complaint, unhappy, disappointed, refund, angry |
-| `after_hours` | closed, after hours, tonight, weekend, holiday |
-| `general_support` | help, support, issue, problem, not working, broken |
+**Switching to PostgreSQL** requires only:
+1. Change `DATABASE_URL` in `.env` to `postgresql+asyncpg://user:pass@host/db`
+2. Add `asyncpg` to requirements
+3. No application code changes.
 
-### Matching Strategy
+### Schema
 
-1. Normalize message to lowercase
-2. Score each SOP by counting keyword occurrences
-3. Highest-scoring SOP above the confidence threshold wins
-4. If no SOP matches → auto-escalate for human review
+```
+┌──────────────────────────────────────────────────────┐
+│  enquiries                                           │
+├──────────────────┬───────────────────────────────────┤
+│ id               │ STRING PK (enq_<uuid8>)           │
+│ customer_name    │ STRING NOT NULL                   │
+│ channel          │ ENUM (whatsapp, email, call)       │
+│ message          │ TEXT NOT NULL                     │
+│ status           │ ENUM (new, processing, ...)        │
+│ sop_matched      │ STRING NULLABLE                   │
+│ suggested_response│ TEXT NULLABLE                    │
+│ escalation_reason│ TEXT NULLABLE                     │
+│ follow_up_delay_minutes │ STRING NULLABLE            │
+│ follow_up_template│ TEXT NULLABLE                    │
+│ created_at       │ DATETIME (indexed)                │
+│ updated_at       │ DATETIME                          │
+└──────────────────┴───────────────────────────────────┘
 
-### Why Keyword-Based?
+┌──────────────────────────────────────────────────────┐
+│  status_events (append-only audit log)               │
+├──────────────────┬───────────────────────────────────┤
+│ id               │ UUID PK                           │
+│ enquiry_id       │ FK → enquiries.id (indexed)       │
+│ status           │ ENUM                              │
+│ note             │ TEXT NULLABLE                     │
+│ created_at       │ DATETIME                          │
+└──────────────────┴───────────────────────────────────┘
+```
 
-- **Transparent:** Every match decision is explainable and auditable
-- **Fast:** Sub-millisecond execution, no external API calls
-- **Extensible:** Add new SOPs by appending to the catalog
-- **Production path:** Replace with embeddings or a fine-tuned classifier
+**Status lifecycle:**
+```
+new → processing → sop_matched
+                 ↘ escalated (auto, no SOP match)
+new → follow_up_scheduled
+any → escalated (manual)
+```
+
+**Design notes:**
+- `StatusEvent` is an append-only audit log — every status change is a new row, never an update. This gives full traceability.
+- `enquiries.status` stores the current state for fast lookups (denormalised).
+- Human-readable IDs (`enq_<8-char-hex>`) make logs and debugging easy.
 
 ---
 
@@ -288,79 +245,43 @@ The SOP (Standard Operating Procedure) matcher classifies inbound messages using
 
 ### Decision: FastAPI BackgroundTasks ✅
 
-| Factor | BackgroundTasks | Celery |
-|--------|----------------|--------|
-| Setup | Zero — built into FastAPI | Redis/RabbitMQ broker required |
-| Dependencies | None | celery, redis, Docker |
-| Best for | Lightweight, single-process tasks | Distributed, high-volume workloads |
+| Factor | FastAPI BackgroundTasks | Celery |
+|--------|------------------------|--------|
+| Setup complexity | Zero — built into FastAPI | High — needs Redis/RabbitMQ broker |
+| Dependencies | None extra | `celery`, `redis`, Docker |
+| Suitable for | Lightweight, single-process tasks | Distributed, high-volume workloads |
 | Retry support | Manual | Built-in |
+| Monitoring | Via structured logs | Flower dashboard |
 | Dev experience | Clone and run | Docker-compose required |
 
-**Why BackgroundTasks here:**
-- SOP matching is lightweight (~1ms: keyword scan + 1 DB write)
-- Single-process workload — no need for a message broker
-- Zero additional infrastructure for development
+**Why BackgroundTasks won here:**
+
+The SOP matching task is lightweight — an in-memory keyword scan + one DB write, completing in <10ms. Adding a Celery broker would triple setup complexity with no benefit at this scale. For an assignment that values "clone and run in 2 minutes", this is the right trade-off.
 
 **When to switch to Celery:**
-- Multi-server deployments where tasks must survive restarts
-- Tasks needing retries, rate limiting, or delayed scheduling
+- Multi-server deployments where tasks must survive a server restart
+- Tasks needing retries, rate limiting, or scheduling (e.g., actually *sending* the follow-up after N minutes)
 - Workloads exceeding ~100 concurrent enquiries/second
 
 ---
 
-## Database Design
+## SOP Matching Logic
 
-### Schema
+Five hardcoded SOPs defined in `src/sop_matcher.py`:
 
-```
-┌─────────────────────────────────────────────────────┐
-│  enquiries                                          │
-├──────────────────────┬──────────────────────────────┤
-│ id                   │ STRING PK (enq_<uuid8>)      │
-│ customer_name        │ STRING NOT NULL (indexed)     │
-│ channel              │ ENUM (whatsapp/email/call)    │
-│ message              │ TEXT NOT NULL                 │
-│ status               │ ENUM (indexed)               │
-│ sop_matched          │ STRING NULLABLE              │
-│ suggested_response   │ TEXT NULLABLE                │
-│ escalation_reason    │ TEXT NULLABLE                │
-│ follow_up_delay_min  │ STRING NULLABLE              │
-│ follow_up_template   │ TEXT NULLABLE                │
-│ created_at           │ DATETIME (indexed)           │
-│ updated_at           │ DATETIME                     │
-└──────────────────────┴──────────────────────────────┘
-         │
-         │ 1:N
-         ▼
-┌─────────────────────────────────────────────────────┐
-│  status_events (append-only audit log)              │
-├──────────────────────┬──────────────────────────────┤
-│ id                   │ UUID PK                      │
-│ enquiry_id           │ FK → enquiries.id            │
-│ status               │ ENUM                         │
-│ note                 │ TEXT NULLABLE                │
-│ created_at           │ DATETIME                     │
-└──────────────────────┴──────────────────────────────┘
-```
+| SOP Name | Trigger Keywords |
+|----------|-----------------|
+| `booking_enquiry` | book, appointment, schedule, reserve, slot |
+| `pricing_question` | price, cost, fee, quote, charge, how much, rate, pricing |
+| `complaint` | complaint, unhappy, disappointed, refund, angry, poor, bad |
+| `after_hours` | closed, after hours, tonight, weekend, holiday |
+| `general_support` | help, support, issue, problem, not working, broken, error |
 
-### Design Decisions
-
-- **Append-only events:** StatusEvent is an immutable audit log — never updated, only appended
-- **Denormalized status:** `enquiries.status` stores current state for fast reads
-- **Human-readable IDs:** `enq_<8-char-hex>` for easy debugging in logs
-- **Composite indexes:** Optimized for common query patterns (channel+status, created_at)
-
-### Switching to PostgreSQL
-
-```bash
-# 1. Update .env
-DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/closira
-
-# 2. Add asyncpg to requirements
-pip install asyncpg
-
-# No application code changes needed.
-```
+**Matching rules:**
+- Case-insensitive
+- Highest keyword-hit-count wins (not first-match)
+- If **no SOP matches**, the enquiry is **automatically escalated** with reason: `"No SOP matched for inbound message. Requires human review."`
+- Escalation event is logged in structured JSON format
 
 ---
 
@@ -373,14 +294,36 @@ pytest
 # Verbose output
 pytest -v
 
-# Run specific test file
+# Only SOP unit tests
 pytest tests/test_sop_matcher.py -v
 
-# Run only endpoint tests
-pytest tests/test_enquiry_endpoints.py -v
+# Only API integration tests
+pytest tests/test_endpoints.py -v
 ```
 
-Tests use a **separate file-based SQLite database** (`test_closira.db`) — fully isolated from development data. The schema is recreated fresh for each test function.
+Tests use a **separate file-based SQLite database** (`test_closira.db`) — fully isolated from dev data. Schema is recreated fresh for each test function.
+
+**Test coverage:**
+- Health check endpoint
+- Enquiry creation (happy path + validation errors)
+- History retrieval (found + 404)
+- Escalation (happy path + 404 + timeline verification)
+- Follow-up scheduling (happy path + 404 + invalid delay)
+- SOP matching (all 5 SOPs + no-match + case insensitivity + scoring)
+
+---
+
+## Trade-offs & Known Limitations
+
+| Area | Trade-off / Limitation |
+|------|------------------------|
+| **Follow-up execution** | `delay_minutes` is stored but the follow-up is never actually sent. Production would need Celery beat or APScheduler. |
+| **Multi-tenancy** | No `tenant_id`. Production would isolate data per business. |
+| **SQLite concurrency** | Serialises writes — fine for a prototype, bottleneck under load. |
+| **SOP matching** | Keyword-based, highest-score-wins. A real system would use embeddings or a classifier. |
+| **Auth** | No authentication. Production would require JWT bearer tokens. |
+| **Task durability** | BackgroundTasks are in-process — if the server crashes mid-task, the task is lost. |
+| **Pagination** | History endpoint returns all events. Production would paginate. |
 
 ---
 
@@ -388,45 +331,9 @@ Tests use a **separate file-based SQLite database** (`test_closira.db`) — full
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `APP_NAME` | Closira Enquiry Engine | Application name (shown in docs/logs) |
+| `APP_NAME` | Closira Enquiry Engine | Shown in docs and logs |
 | `APP_VERSION` | 1.0.0 | API version |
 | `APP_ENV` | development | Environment identifier |
-| `DEBUG` | false | Enable SQLAlchemy echo and debug logging |
-| `DATABASE_URL` | sqlite+aiosqlite:///./closira.db | Database connection string |
-| `LOG_LEVEL` | INFO | Logging level (DEBUG/INFO/WARNING/ERROR) |
-| `SOP_CONFIDENCE_THRESHOLD` | 1 | Minimum keyword hits for SOP match |
-
----
-
-## Trade-offs & Assumptions
-
-| Area | Decision | Rationale |
-|------|----------|-----------|
-| **Database** | SQLite for dev | Zero-setup, swap to PostgreSQL via env var |
-| **Background tasks** | FastAPI BackgroundTasks | No broker needed at this scale |
-| **SOP matching** | Keyword-based | Transparent, fast, auditable |
-| **Follow-up execution** | Stored but not sent | Would need Celery beat in production |
-| **Authentication** | None | Out of scope — would use JWT in production |
-| **Multi-tenancy** | Single tenant | No tenant_id — production would isolate data |
-| **Migrations** | Auto-create tables | Production would use Alembic |
-
----
-
-## Future Improvements
-
-- **Authentication:** JWT-based auth with role-based access control
-- **Alembic migrations:** Version-controlled schema changes
-- **Celery integration:** For delayed follow-up execution and retries
-- **Semantic SOP matching:** Replace keywords with sentence embeddings
-- **WebSocket support:** Real-time enquiry status updates
-- **Rate limiting:** Protect endpoints from abuse
-- **Pagination:** For listing enquiries at scale
-- **Multi-tenancy:** Tenant isolation for SaaS deployment
-- **Observability:** OpenTelemetry tracing, Prometheus metrics
-- **CI/CD:** GitHub Actions pipeline with automated testing
-
----
-
-## License
-
-MIT
+| `DEBUG` | false | Enable SQL echo logging |
+| `DATABASE_URL` | sqlite+aiosqlite:///./closira.db | DB connection string |
+| `LOG_LEVEL` | INFO | Logging level |
