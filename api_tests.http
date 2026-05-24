@@ -1,0 +1,110 @@
+### ══════════════════════════════════════════════════════════════════════════════
+### Closira Enquiry Engine — API Test File (VS Code REST Client)
+### ══════════════════════════════════════════════════════════════════════════════
+
+### Health Check
+GET http://localhost:8000/api/health
+Content-Type: application/json
+
+###
+
+### Create Enquiry — Pricing Question (should match pricing_question SOP)
+POST http://localhost:8000/api/enquiry
+Content-Type: application/json
+
+{
+  "customer_name": "Sarah Mitchell",
+  "channel": "whatsapp",
+  "message": "Hi, I wanted to know about your pricing plans."
+}
+
+###
+
+### Create Enquiry — Booking (should match booking_enquiry SOP)
+POST http://localhost:8000/api/enquiry
+Content-Type: application/json
+
+{
+  "customer_name": "Amit Joshi",
+  "channel": "email",
+  "message": "Can you help me book an appointment for next Tuesday?"
+}
+
+###
+
+### Create Enquiry — Complaint (should match complaint SOP)
+POST http://localhost:8000/api/enquiry
+Content-Type: application/json
+
+{
+  "customer_name": "Ravi Kumar",
+  "channel": "call",
+  "message": "I'm very unhappy with the service. This is terrible."
+}
+
+###
+
+### Create Enquiry — No SOP Match (should auto-escalate)
+POST http://localhost:8000/api/enquiry
+Content-Type: application/json
+
+{
+  "customer_name": "Unknown User",
+  "channel": "whatsapp",
+  "message": "Lorem ipsum dolor sit amet, nothing relevant here."
+}
+
+###
+
+### Get Enquiry History (replace enq_XXXXXXXX with actual ID)
+GET http://localhost:8000/api/enquiry/enq_XXXXXXXX/history
+Content-Type: application/json
+
+###
+
+### Schedule Follow-up (replace enq_XXXXXXXX with actual ID)
+POST http://localhost:8000/api/enquiry/enq_XXXXXXXX/followup
+Content-Type: application/json
+
+{
+  "delay_minutes": 30,
+  "message_template": "Hi {customer_name}, following up on your enquiry!"
+}
+
+###
+
+### Escalate Enquiry (replace enq_XXXXXXXX with actual ID)
+POST http://localhost:8000/api/enquiry/enq_XXXXXXXX/escalate
+Content-Type: application/json
+
+{
+  "reason": "Customer is demanding a manager and threatening to leave."
+}
+
+###
+
+### Validation Error — Invalid Channel
+POST http://localhost:8000/api/enquiry
+Content-Type: application/json
+
+{
+  "customer_name": "Test User",
+  "channel": "telegram",
+  "message": "This should fail validation."
+}
+
+###
+
+### Validation Error — Missing Fields
+POST http://localhost:8000/api/enquiry
+Content-Type: application/json
+
+{
+  "customer_name": "Test User"
+}
+
+###
+
+### 404 — Non-existent Enquiry
+GET http://localhost:8000/api/enquiry/enq_doesnotexist/history
+Content-Type: application/json
